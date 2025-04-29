@@ -22,7 +22,7 @@ class EnvKwArgs(NamedTuple):
     num_agents: int = 3                    # --num_agents 3
     max_steps: int = 25                    # --episode_length 25  (was 50)
 
-    collision_reward_coefficient: float = 5   # --collision_rew 5  (was -10)
+    collision_reward_coefficient: float = -10   # --collision_rew 5  (was -10)
     one_time_death_reward: int = 10
     distance_to_goal_reward_coefficient: int = 1
     entity_acceleration: int = 5
