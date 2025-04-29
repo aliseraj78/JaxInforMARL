@@ -18,21 +18,20 @@ class EnvKwArgs(NamedTuple):
         agent_max_speed: Negative value means no maximum speed.
     """
 
-    num_agents: int = 3
-    max_steps: int = 50
-    collision_reward_coefficient: float = -10
+    # --------------------------- scenario‑specific ----------------------------
+    num_agents: int = 3                    # --num_agents 3
+    max_steps: int = 25                    # --episode_length 25  (was 50)
+
+    collision_reward_coefficient: float = 5   # --collision_rew 5  (was -10)
     one_time_death_reward: int = 10
     distance_to_goal_reward_coefficient: int = 1
     entity_acceleration: int = 5
 
+    # --------------------------- generic -------------------------------------
     agent_max_speed: int = -1
-    agent_visibility_radius: list[float] = [
-        0.25,
-    ]
-    entities_initial_coord_radius: list[float] = [
-        1,
-    ]
-    agent_communication_type: CommunicationType.value = None
+    agent_visibility_radius: list[float] = [0.25]
+    entities_initial_coord_radius: list[float] = [1]
+    agent_communication_type: CommunicationType.value | None = None
     agent_control_noise_std: float = 0.0
     add_self_edges_to_nodes: bool = True
 
@@ -43,6 +42,7 @@ class EnvKwArgs(NamedTuple):
 
 
 class EnvConfig(NamedTuple):
+    # NOTE: GraphMPE env is not yet ported – this keeps the default Target‑MPE env.
     env_cls_name: str = "StackedTargetMPEEnvironment"
     env_kwargs: EnvKwArgs = EnvKwArgs()
 
@@ -61,9 +61,11 @@ class PPOConfig(NamedTuple):
     clip_eps: float = 0.2
     is_clip_eps_per_env: bool = False
     max_grad_norm: float = 10
-    num_steps_per_update: int = 128
-    num_minibatches_actors: int = 4
-    update_epochs: int = 4
+
+    # ---------- tuned to match CLI call --------------------------------------
+    num_steps_per_update: int = 25         # align with episode_length
+    num_minibatches_actors: int = 1        # --num_mini_batch 1
+    update_epochs: int = 10                # --ppo_epoch 10
 
     gae_lambda: float = 0.95
     entropy_coefficient: float = 0.01
@@ -77,13 +79,18 @@ class TrainingConfig(NamedTuple):
         gamma: discount factor.
     """
 
-    seed: int = 1
-    num_seeds: int = 2
-    lr: float = 5e-4
+    # ---------- experiment‑wide ----------------------------------------------
+    seed: int = 0                             # --seed 0
+    num_seeds: int = 1
+
+    lr: float = 7e-4                           # --lr / --critic_lr 7e-4
     anneal_lr: bool = True
-    num_envs: int = 4
+
+    num_envs: int = 128                        # --n_rollout_threads 128
     gamma: float = 0.99
-    total_timesteps: float = 1e4
+
+    total_timesteps: float = 2_000_000         # --num_env_steps
+
     ppo_config: PPOConfig = PPOConfig()
 
 
@@ -95,7 +102,9 @@ class NeuralODEConfig(NamedTuple):
 
 
 class NetworkConfig(NamedTuple):
-    use_rnn: bool = False
+    # rmappo ⇒ recurrent policy
+    use_rnn: bool = True                       # turned on to match "rmappo"
+
     use_graph_attention_in_actor: bool = True
     use_graph_attention_in_critic: bool = False
 
@@ -118,10 +127,10 @@ class NetworkConfig(NamedTuple):
 
 
 class WandbConfig(NamedTuple):
-    entity: str = "josssdan"
-    project: str = "JaxInforMARL"
-    mode: Literal["online", "offline", "disabled"] = "disabled"
-    save_model: bool = False
+    entity: str = "ali-seraj"
+    project: str = "informarl"
+    mode: Literal["online", "offline", "disabled"] = "online"
+    save_model: bool = True
     checkpoint_model_every_update_steps: float = 1e2
 
 
@@ -143,15 +152,17 @@ class MAPPOConfig(NamedTuple):
     @classmethod
     def create(
             cls,
-            env_config=EnvConfig(),
-            training_config=TrainingConfig(),
-            network_config=NetworkConfig(),
-            wandb_config=WandbConfig(),
-            testing=False,
-    ) -> MAPPOConfig:
+            env_config: EnvConfig = EnvConfig(),
+            training_config: TrainingConfig = TrainingConfig(),
+            network_config: NetworkConfig = NetworkConfig(),
+            wandb_config: WandbConfig = WandbConfig(),
+            testing: bool = False,
+    ) -> "MAPPOConfig":
+        # ------------- derived -------------------------------------------------
         num_actors = env_config.env_kwargs.num_agents * training_config.num_envs
         batch_size = num_actors * training_config.ppo_config.num_steps_per_update
         num_entity_types = env_config.env_kwargs.num_agents * 2
+
         _derived_values = DerivedValues(
             num_actors=num_actors,
             num_updates=int(
@@ -159,20 +170,17 @@ class MAPPOConfig(NamedTuple):
                 // training_config.num_envs
                 // training_config.ppo_config.num_steps_per_update
             ),
-            minibatch_size=(
-                    batch_size // training_config.ppo_config.num_minibatches_actors
-            ),
+            minibatch_size=batch_size // training_config.ppo_config.num_minibatches_actors,
             scaled_clip_eps=(
                 training_config.ppo_config.clip_eps / env_config.env_kwargs.num_agents
                 if training_config.ppo_config.is_clip_eps_per_env
                 else training_config.ppo_config.clip_eps
             ),
-            num_entity_types=num_entity_types
+            num_entity_types=num_entity_types,
         )
+
         if not testing:
-            assert (
-                    _derived_values.num_updates > 0
-            ), "Number of updates per environment must be greater than 0."
+            assert _derived_values.num_updates > 0, "Number of updates per environment must be greater than 0."
 
         return cls(
             env_config=env_config,
