@@ -89,7 +89,7 @@ class TrainingConfig(NamedTuple):
     num_envs: int = 128                        # --n_rollout_threads 128
     gamma: float = 0.99
 
-    total_timesteps: float = 2_000_000         # --num_env_steps
+    total_timesteps: float = 200_000_000       # --num_env_steps
 
     ppo_config: PPOConfig = PPOConfig()
 
